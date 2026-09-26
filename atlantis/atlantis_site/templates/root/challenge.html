@@ -14,7 +14,7 @@
 
     <form method="GET" class="users-search" role="search">
         <input type="search" name="q" value="{{ search }}"
-               placeholder="Search by username" aria-label="Search by username" autocomplete="off">
+               placeholder="Search by username or Slack name" aria-label="Search by username or Slack name" autocomplete="off">
         <select name="show" aria-label="Filter">
             <option value="" {% if not show %}selected{% endif %}>Everyone</option>
             <option value="out" {% if show == 'out' %}selected{% endif %}>Out of the program</option>

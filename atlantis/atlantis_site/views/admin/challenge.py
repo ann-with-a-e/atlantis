@@ -11,6 +11,7 @@ the reason the organizer typed.
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -31,7 +32,12 @@ def challenge_dash(request):
 
     users = User.objects.select_related("hackclub_profile").order_by("id")
     if search:
-        users = users.filter(username__icontains=search)
+        # Rows are labelled with display_name, which prefers the Slack name,
+        # so a search has to match that as well as the account username.
+        users = users.filter(
+            Q(username__icontains=search)
+            | Q(hackclub_profile__slack_username__icontains=search)
+        )
 
     rows = []
     for user in users:

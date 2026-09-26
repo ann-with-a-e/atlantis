@@ -754,6 +754,18 @@ class ChallengeAdminTests(BaseTestCase):
             self.assertIn("finisher", listed)
             self.assertNotIn("shipper", listed)
 
+    def test_search_finds_somebody_by_the_slack_name_the_roster_shows(self):
+        make_user("U12345", slack_id="U0SLACK", slack_username="orpheus")
+        with during_week(1):
+            for query in ("orph", "U123"):
+                listed = [
+                    row["user"].username
+                    for row in self.client.get(
+                        reverse("challenge_dash"), {"q": query}
+                    ).context["rows"]
+                ]
+                self.assertEqual(listed, ["U12345"], query)
+
     def test_granting_hours_revives_somebody(self):
         with during_week(2):
             self._log(240, in_week(1))
