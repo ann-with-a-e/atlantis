@@ -14,6 +14,9 @@ class AtlantisTestRunner(DiscoverRunner):
 
 	Tests that exercise the Airtable path set their own dummy credentials with
 	override_settings, which still takes precedence over this.
+
+	The bulletin channel goes the same way: every Slack-linked signup invites
+	somebody to it, and a test login shouldn't reach the real workspace.
 	"""
 
 	def setup_test_environment(self, **kwargs):
@@ -21,6 +24,7 @@ class AtlantisTestRunner(DiscoverRunner):
 		self._airtable_guard = override_settings(
 			AIRTABLE_PAT="", AIRTABLE_BASE_ID="", AIRTABLE_TABLE_ID="",
 			AIRTABLE_EMAILS_TABLE_ID="",
+			SLACK_BULLETIN_CHANNEL_ID="",
 		)
 		self._airtable_guard.enable()
 

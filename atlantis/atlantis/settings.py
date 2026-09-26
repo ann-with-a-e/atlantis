@@ -45,6 +45,10 @@ SLACK_TOKEN = os.environ["SLACK_TOKEN"]
 # can talk it over instead of the shipper getting a DM they can't reply to.
 REVIEW_CHECKPOINT_ID = os.environ.get("REVIEW_CHECKPOINT_ID", "")
 
+# #atlantis-bulletin. Every Slack-linked signup is invited to it, and the users
+# page can invite everyone who is already here.
+SLACK_BULLETIN_CHANNEL_ID = os.environ.get("SLACK_BULLETIN_CHANNEL_ID", "C0B6SSFHNUD")
+
 TEST_RUNNER = "atlantis.testrunner.AtlantisTestRunner"
 
 AIRTABLE_PAT = os.environ.get("AIRTABLE_PAT", "")

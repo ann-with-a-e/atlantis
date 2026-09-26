@@ -12,6 +12,10 @@
         {% csrf_token %}
         <button type="submit">Backfill emails to Airtable</button>
     </form>
+    <form method="POST" action="{% url 'invite_to_bulletin' %}" id="inviteBulletinForm">
+        {% csrf_token %}
+        <button type="submit">Add Slack users to #atlantis-bulletin</button>
+    </form>
     <form method="GET" class="users-search" role="search">
         <input
             id="userSearchInput"
@@ -147,6 +151,16 @@
         if (!form) return;
         form.addEventListener('submit', (event) => {
             if (!confirm("Send every user's full name and email to the Airtable Emails table?")) {
+                event.preventDefault();
+            }
+        });
+    })();
+
+    (function () {
+        const form = document.getElementById('inviteBulletinForm');
+        if (!form) return;
+        form.addEventListener('submit', (event) => {
+            if (!confirm("Add every Slack-linked user to #atlantis-bulletin?")) {
                 event.preventDefault();
             }
         });

@@ -6,12 +6,13 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import Q
 from django.db import transaction
 from django.contrib import messages
+from django.conf import settings
 
 import os
 
 from ... import airtable
 from ...models import Profile, Project
-from ..helpers import check_perms, is_valid_image_url, record_audit, is_valid_printables_url, is_valid_editor_model_url, tracked_minutes_for_journals, format_minutes, INT_FIELD_MAX, INT_FIELD_MIN, field_max_length, too_long
+from ..helpers import check_perms, invite_to_bulletin_in_background, is_valid_image_url, record_audit, is_valid_printables_url, is_valid_editor_model_url, tracked_minutes_for_journals, format_minutes, INT_FIELD_MAX, INT_FIELD_MIN, field_max_length, too_long
 
 @staff_member_required
 @check_perms(["atlantis_site.organizer"])
@@ -56,6 +57,28 @@ def backfill_emails(request):
         "count": len(people),
     })
     messages.success(request, f"Sending {len(people)} user(s) to the Airtable Emails table in the background.")
+    return redirect("users")
+
+@staff_member_required
+@require_POST
+@check_perms(["atlantis_site.organizer"])
+def invite_to_bulletin(request):
+    if not settings.SLACK_BULLETIN_CHANNEL_ID:
+        messages.error(request, "The bulletin channel is not configured (missing SLACK_BULLETIN_CHANNEL_ID).")
+        return redirect("users")
+
+    slack_ids = list(
+        Profile.objects.exclude(slack_id="")
+        .order_by("user_id")
+        .values_list("slack_id", flat=True)
+        .distinct()
+    )
+    invite_to_bulletin_in_background(slack_ids, "backfill")
+
+    record_audit(request, "invite_to_bulletin", target="#atlantis-bulletin", metadata={
+        "count": len(slack_ids),
+    })
+    messages.success(request, f"Inviting {len(slack_ids)} Slack-linked user(s) to #atlantis-bulletin in the background.")
     return redirect("users")
 
 @staff_member_required

@@ -31,6 +31,8 @@ from PIL import Image
 
 import os
 import uuid
+import logging
+import threading
 import requests
 import socket
 import ipaddress
@@ -53,6 +55,8 @@ PRINTABLES_HOSTS = frozenset({"printables.com", "www.printables.com"})
 ALLOWED_URL_PORTS = {"http": 80, "https": 443}
 
 slack_client = WebClient(token=settings.SLACK_TOKEN, timeout=5)
+
+logger = logging.getLogger(__name__)
 
 def check_perms(perms):
     return user_passes_test(lambda user: any(user.has_perm(p) for p in perms))
@@ -671,6 +675,60 @@ def send_slack_message(content, channel):
 def send_slack_dm(content, user):
     # A DM is the same API call as a channel post, addressed to a Slack ID.
     return send_slack_message(content, user)
+
+# Most users conversations.invite takes in one call.
+SLACK_INVITE_BATCH = 1000
+
+def invite_to_bulletin(slack_ids):
+    """Invite these Slack users to the bulletin channel; returns how many joined.
+
+    force=True so one deactivated account or bad id doesn't sink the rest of
+    its batch. Anybody already in the channel is reported back as an error,
+    which is expected on a re-run and not worth a line in the log.
+    """
+    channel = settings.SLACK_BULLETIN_CHANNEL_ID
+    ids = list(dict.fromkeys(slack_id for slack_id in slack_ids if slack_id))
+    if not channel or not ids:
+        return 0
+
+    invited = 0
+    for start in range(0, len(ids), SLACK_INVITE_BATCH):
+        batch = ids[start:start + SLACK_INVITE_BATCH]
+        try:
+            response = slack_client.conversations_invite(channel=channel, users=batch, force=True)
+        except SlackApiError as exc:
+            # Nobody in the batch joined. A single-user batch names its reason
+            # in `error`; a larger one lists them per user in `errors`.
+            _log_invite_errors(exc.response.get("errors") or [
+                {"user": ",".join(batch), "error": exc.response.get("error")}
+            ])
+            continue
+        errors = response.get("errors") or []
+        _log_invite_errors(errors)
+        invited += len(batch) - len(errors)
+    return invited
+
+def _log_invite_errors(errors):
+    for error in errors:
+        if error.get("error") != "already_in_channel":
+            logger.warning("Bulletin invite skipped %s: %s", error.get("user"), error.get("error"))
+
+def invite_to_bulletin_in_background(slack_ids, label):
+    """invite_to_bulletin off the request thread; the outcome goes to the log."""
+    slack_ids = list(slack_ids)
+
+    def run():
+        try:
+            invited = invite_to_bulletin(slack_ids)
+        except Exception:
+            logger.exception("Bulletin invite %s crashed", label)
+        else:
+            logger.info("Bulletin invite %s added %s user(s)", label, invited)
+
+    _start_thread(run)
+
+def _start_thread(target):
+    threading.Thread(target=target, daemon=True).start()
 
 def slack_mention(user):
     profile = getattr(user, "hackclub_profile", None)
