@@ -230,6 +230,23 @@ class MetricsHoursTests(BaseTestCase):
 		self.assertEqual(hours["avg_per_devlog_display"], "3h 0m")
 		self.assertEqual(hours["daily_hours"][-1]["value"], 6.0)
 
+	def test_builders_per_week_counts_each_builder_once_per_calendar_week(self):
+		busy = make_project(make_user("busy", slack_id="U-busy"))
+		quit = make_project(make_user("quit", slack_id="U-quit"))
+		make_journal(busy, time_spent=60)
+		make_journal(busy, time_spent=60)
+		last_week = timezone.now() - timedelta(weeks=1)
+		for project in (busy, quit):
+			stale = make_journal(project, time_spent=60)
+			Journal.objects.filter(pk=stale.pk).update(created_at=last_week)
+
+		rows = self._hours()["weekly_builders"]
+
+		self.assertEqual(len(rows), 8)
+		self.assertEqual([row["value"] for row in rows[-2:]], [2, 1])
+		self.assertEqual(rows[-1]["sub"], "so far")
+		self.assertNotIn("sub", rows[-2])
+
 	def test_seven_day_average_ignores_older_lapses(self):
 		project = make_project(make_user("builder", slack_id="U1"))
 		make_journal(project, time_spent=420)

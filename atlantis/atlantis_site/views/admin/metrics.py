@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404, render
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import Count, Sum, Avg
-from django.db.models.functions import TruncDate
+from django.db.models.functions import TruncDate, TruncWeek
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -71,6 +71,10 @@ STREAK_BUCKETS = [
 # How many days the daily bar charts go back. Short enough that each bar is
 # still readable in a column of them.
 TREND_DAYS = 14
+
+# How many calendar weeks (Mon-Sun, this one included) the weekly builders
+# chart goes back — enough to see a drop-off across the challenge.
+TREND_WEEKS = 8
 
 
 def _pct(part, whole):
@@ -309,6 +313,26 @@ def build_metrics(now):
     builders_last_7 = journals_last_7.values("project__owner").distinct().count()
     builders_this_week = journals_this_week.values("project__owner").distinct().count()
 
+    # Builders per calendar week, the same count as builders_this_week for
+    # each of the weeks before it. Grouped on the Monday each lapse's week
+    # opened, in the zone activated above.
+    first_week_day = week_start_day - timedelta(weeks=TREND_WEEKS - 1)
+    weekly_builders = {
+        timezone.localtime(row["week"]).date(): row["builders"]
+        for row in Journal.objects
+        .filter(created_at__gte=datetime.combine(first_week_day, time.min, tzinfo=timezone.get_current_timezone()))
+        .annotate(week=TruncWeek("created_at"))
+        .values("week").annotate(builders=Count("project__owner", distinct=True))
+    }
+    weekly_builder_rows = add_bars([
+        {
+            "label": f"Week of {monday:%b} {monday.day}",
+            "value": weekly_builders.get(monday, 0),
+            **({"sub": "so far"} if monday == week_start_day else {}),
+        }
+        for monday in (first_week_day + timedelta(weeks=n) for n in range(TREND_WEEKS))
+    ])
+
     hours_counts = {
         row["day"]: row["seconds"]
         for row in Timelapse.objects
@@ -335,6 +359,7 @@ def build_metrics(now):
         "this_week": _hours(minutes_this_week),
         "devlogs_this_week": journals_this_week.count(),
         "builders_this_week": builders_this_week,
+        "weekly_builders": weekly_builder_rows,
         "week_start": week_start_day,
         "challenge": _hours(minutes_challenge),
         "devlogs_challenge": journals_challenge.count(),

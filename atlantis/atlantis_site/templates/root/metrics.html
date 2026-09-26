@@ -241,6 +241,7 @@
 
         <div class="chart-grid">
             {% include "root/_metric_chart.html" with title="Hours logged per day" rows=hours.daily_hours fill_class="warn" wide=True empty="Nothing logged yet" %}
+            {% include "root/_metric_chart.html" with title="Builders tracked per week (Mon&ndash;Sun)" rows=hours.weekly_builders fill_class="good" wide=True empty="Nothing logged yet" %}
         </div>
     </section>
 
