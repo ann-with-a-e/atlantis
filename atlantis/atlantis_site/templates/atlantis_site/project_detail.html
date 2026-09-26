@@ -115,9 +115,11 @@
                             The note is clamped to the line the page has room for.
                             When there is more of it than that, the script below
                             marks it clipped and the click opens the whole thing.
+                            The clamp sits on the inner span because Safari and
+                            Firefox won't lay a button out as a clamped box.
                             {% endcomment %}
                             {% if forloop.first and ship.latest_feedback %}
-                                <button type="button" class="ship-note js-note" data-note="{{ ship.latest_feedback }}">&ldquo;{{ ship.latest_feedback }}&rdquo;</button>
+                                <button type="button" class="ship-note js-note" data-note="{{ ship.latest_feedback }}"><span class="ship-note-text">&ldquo;{{ ship.latest_feedback }}&rdquo;</span></button>
                             {% endif %}
                         {% empty %}
                             <p class="ship-line dim">nothing shipped yet.</p>

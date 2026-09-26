@@ -450,11 +450,20 @@ a.ink-btn {
     font-size: 1.5cqw;
     text-align: left;
     cursor: default;
+    display: block;
+}
+
+/* The clamp lives here rather than on the button: Safari and Firefox won't
+   lay a button out as a -webkit-box, so the note would run down the page and
+   push the ship button off it. max-height backs the clamp up anywhere it's
+   still ignored. */
+.ship-note-text {
     display: -webkit-box;
     -webkit-line-clamp: 1;
     line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    max-height: 1lh;
     /* A reviewer who types one long unbroken word would otherwise run it off
        the edge of the page instead of filling the line and stopping. */
     overflow-wrap: anywhere;
