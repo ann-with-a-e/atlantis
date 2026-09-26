@@ -15,6 +15,7 @@ from ..models import (
 	InternalComment,
 	T1,
 	T2,
+	T3,
 	detect_editor,
 	detect_editor_from_filename,
 	detect_editor_from_link,
@@ -328,6 +329,22 @@ class BuildReviewHistoryTests(TestCase):
 			[e["ship_id"] for e in events],
 			[earlier_ship.id, earlier_ship.id, self.ship.id],
 		)
+
+	def test_t3_returns_are_included(self):
+		T1.objects.create(
+			ship=self.ship, reviewer=self.user, feedback="ok", internal_notes="fine", approved=True
+		)
+		T2.objects.create(ship=self.ship, reviewer=self.user, feedback="good", justification="solid")
+		t3 = T3.objects.create(
+			ship=self.ship, reviewer=self.user, decision=T3.Decision.RETURN_T1,
+			internal_notes="timelapse gaps", payout_time=0, airtable_time=0,
+		)
+
+		events = build_review_history(self.ship)
+
+		self.assertEqual([e["type"] for e in events], ["t1", "t2", "t3"])
+		self.assertEqual(events[-1]["review"], t3)
+		self.assertEqual(events[-1]["label"], "T3 Review")
 
 	def test_other_projects_are_untouched(self):
 		other_ship = make_ship(make_project(self.user), journal_minutes=())

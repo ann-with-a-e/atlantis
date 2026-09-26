@@ -8,6 +8,8 @@
                         <span class="rv-sibling rv-sibling-{{ event.review.verdict|slugify }}">T1</span>
                     {% elif event.type == "t2" %}
                         <span class="rv-sibling rv-sibling-{% if event.review.decision == 'A' %}approved{% else %}returned{% endif %}">T2</span>
+                    {% elif event.type == "t3" %}
+                        <span class="rv-sibling rv-sibling-{% if event.review.decision == 'A' %}approved{% else %}returned{% endif %}">T3</span>
                     {% endif %}
                 {% endfor %}
                 {{ review_history|length }} entr{{ review_history|length|pluralize:"y,ies" }}
@@ -39,6 +41,11 @@
                                 {{ event.review.get_decision_display|lower }}
                             </span>
                             <span class="rv-history-label">T2</span>
+                        {% elif event.type == "t3" %}
+                            <span class="rv-sibling rv-sibling-{% if event.review.decision == 'A' %}approved{% else %}returned{% endif %}">
+                                {{ event.review.get_decision_display|lower }}
+                            </span>
+                            <span class="rv-history-label">T3</span>
                         {% else %}
                             <span class="rv-history-label">{{ event.label }}</span>
                         {% endif %}
@@ -69,6 +76,11 @@
                         <div class="rv-history-field-block">
                             <p class="rv-history-field">Justification</p>
                             <p class="is-quiet">{{ event.review.justification|default:"none" }}</p>
+                        </div>
+                    {% elif event.type == "t3" %}
+                        <div class="rv-history-field-block">
+                            <p class="rv-history-field">Feedback</p>
+                            <p>{{ event.review.internal_notes|default:"none" }}</p>
                         </div>
                     {% endif %}
                 </li>

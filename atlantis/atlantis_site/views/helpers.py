@@ -9,7 +9,7 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from ..models import (
-    AuditLog, InternalComment, Journal, Ship, T1, T2, Timelapse, TimelapseRemoval,
+    AuditLog, InternalComment, Journal, Ship, T1, T2, T3, Timelapse, TimelapseRemoval,
     PAYOUT_MULTIPLIER_DEFAULT, PEARLS_PER_HOUR, detect_editor, is_editor_model_file
 )
 from ..hca import (
@@ -309,6 +309,20 @@ def build_review_history(ship):
             "other_ship": t2.ship_id != ship.id,
             "ship_id": t2.ship_id,
             "at": t2.reviewed_at,
+        })
+    # T3 sends ships back to T1 and T2, and its notes are the only word on
+    # why: a reviewer picking a returned ship up again needs to read them.
+    for t3 in T3.objects.filter(ship__project=project).select_related(
+        "reviewer", "reviewer__hackclub_profile"
+    ):
+        events.append({
+            "type": "t3",
+            "label": "T3 Review",
+            "review": t3,
+            "actor": display_name(t3.reviewer),
+            "other_ship": t3.ship_id != ship.id,
+            "ship_id": t3.ship_id,
+            "at": t3.reviewed_at,
         })
     for comment in internal_comments_for_project(project):
         events.append({
