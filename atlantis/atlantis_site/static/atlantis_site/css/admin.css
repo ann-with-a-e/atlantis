@@ -522,6 +522,16 @@
     gap: 8px;
 }
 
+/* Groups the standalone one-button forms (backfill, bulletin invite) into a
+   single row instead of letting each <form> stack as its own block. */
+.root-page .admin-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 14px 0;
+}
+
 .root-page .users-search {
     display: flex;
     align-items: center;

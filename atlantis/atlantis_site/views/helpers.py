@@ -679,14 +679,13 @@ def send_slack_dm(content, user):
 # Most users conversations.invite takes in one call.
 SLACK_INVITE_BATCH = 1000
 
-def invite_to_bulletin(slack_ids):
-    """Invite these Slack users to the bulletin channel; returns how many joined.
+def invite_to_channel(channel, slack_ids):
+    """Invite these Slack users to one channel; returns how many joined.
 
     force=True so one deactivated account or bad id doesn't sink the rest of
     its batch. Anybody already in the channel is reported back as an error,
     which is expected on a re-run and not worth a line in the log.
     """
-    channel = settings.SLACK_BULLETIN_CHANNEL_ID
     ids = list(dict.fromkeys(slack_id for slack_id in slack_ids if slack_id))
     if not channel or not ids:
         return 0
@@ -699,31 +698,43 @@ def invite_to_bulletin(slack_ids):
         except SlackApiError as exc:
             # Nobody in the batch joined. A single-user batch names its reason
             # in `error`; a larger one lists them per user in `errors`.
-            _log_invite_errors(exc.response.get("errors") or [
+            _log_invite_errors(channel, exc.response.get("errors") or [
                 {"user": ",".join(batch), "error": exc.response.get("error")}
             ])
             continue
         errors = response.get("errors") or []
-        _log_invite_errors(errors)
+        _log_invite_errors(channel, errors)
         invited += len(batch) - len(errors)
     return invited
 
-def _log_invite_errors(errors):
+def _log_invite_errors(channel, errors):
     for error in errors:
         if error.get("error") != "already_in_channel":
-            logger.warning("Bulletin invite skipped %s: %s", error.get("user"), error.get("error"))
+            logger.warning("Invite to %s skipped %s: %s", channel, error.get("user"), error.get("error"))
 
-def invite_to_bulletin_in_background(slack_ids, label):
-    """invite_to_bulletin off the request thread; the outcome goes to the log."""
+def invite_to_autojoin_channels(slack_ids):
+    """Invite these Slack users to every channel new signups auto-join.
+
+    Every channel gets the full list independently, so one channel rejecting a
+    batch (wrong permissions, a bad id) doesn't stop the others.
+    """
+    slack_ids = list(slack_ids)
+    return sum(
+        invite_to_channel(channel, slack_ids)
+        for channel in settings.SLACK_AUTOJOIN_CHANNEL_IDS
+    )
+
+def invite_to_autojoin_channels_in_background(slack_ids, label):
+    """invite_to_autojoin_channels off the request thread; the outcome goes to the log."""
     slack_ids = list(slack_ids)
 
     def run():
         try:
-            invited = invite_to_bulletin(slack_ids)
+            invited = invite_to_autojoin_channels(slack_ids)
         except Exception:
-            logger.exception("Bulletin invite %s crashed", label)
+            logger.exception("Autojoin invite %s crashed", label)
         else:
-            logger.info("Bulletin invite %s added %s user(s)", label, invited)
+            logger.info("Autojoin invite %s added %s membership(s)", label, invited)
 
     _start_thread(run)
 

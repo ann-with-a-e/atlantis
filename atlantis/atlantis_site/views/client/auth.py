@@ -6,7 +6,7 @@ from ... import airtable
 from ...models import Profile
 from ...crypto import encrypt_token
 from ...hca import extract_verification, oauth, storable_token
-from ..helpers import slack_client, rate_limit, fit, invite_to_bulletin_in_background
+from ..helpers import slack_client, rate_limit, fit, invite_to_autojoin_channels_in_background
 
 import os
 
@@ -104,7 +104,7 @@ def auth_callback(request):
             airtable.upsert_emails_in_background([contact], f"signup for user #{user.id}")
 
     if created and slack_id:
-        invite_to_bulletin_in_background([slack_id], f"signup for user #{user.id}")
+        invite_to_autojoin_channels_in_background([slack_id], f"signup for user #{user.id}")
 
     login(request, user)
     response = redirect("dashboard")

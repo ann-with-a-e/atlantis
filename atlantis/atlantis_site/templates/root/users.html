@@ -8,14 +8,16 @@
     {% include "root/_messages_admin.html" %}
     <h1>Users</h1>
     <h3>Manage Users</h3>
-    <form method="POST" action="{% url 'backfill_emails' %}" id="backfillEmailsForm">
-        {% csrf_token %}
-        <button type="submit">Backfill emails to Airtable</button>
-    </form>
-    <form method="POST" action="{% url 'invite_to_bulletin' %}" id="inviteBulletinForm">
-        {% csrf_token %}
-        <button type="submit">Add Slack users to #atlantis-bulletin</button>
-    </form>
+    <div class="admin-actions">
+        <form method="POST" action="{% url 'backfill_emails' %}" id="backfillEmailsForm">
+            {% csrf_token %}
+            <button type="submit">Backfill emails to Airtable</button>
+        </form>
+        <form method="POST" action="{% url 'invite_to_channels' %}" id="inviteChannelsForm">
+            {% csrf_token %}
+            <button type="submit">Add Slack users to Atlantis channels</button>
+        </form>
+    </div>
     <form method="GET" class="users-search" role="search">
         <input
             id="userSearchInput"
@@ -157,10 +159,10 @@
     })();
 
     (function () {
-        const form = document.getElementById('inviteBulletinForm');
+        const form = document.getElementById('inviteChannelsForm');
         if (!form) return;
         form.addEventListener('submit', (event) => {
-            if (!confirm("Add every Slack-linked user to #atlantis-bulletin?")) {
+            if (!confirm("Add every Slack-linked user to #atlantis-bulletin, #atlantis, #atlantis-help, and #atlantis-checkpoint?")) {
                 event.preventDefault();
             }
         });

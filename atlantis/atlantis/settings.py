@@ -45,9 +45,15 @@ SLACK_TOKEN = os.environ["SLACK_TOKEN"]
 # can talk it over instead of the shipper getting a DM they can't reply to.
 REVIEW_CHECKPOINT_ID = os.environ.get("REVIEW_CHECKPOINT_ID", "")
 
-# #atlantis-bulletin. Every Slack-linked signup is invited to it, and the users
-# page can invite everyone who is already here.
-SLACK_BULLETIN_CHANNEL_ID = os.environ.get("SLACK_BULLETIN_CHANNEL_ID", "C0B6SSFHNUD")
+# #atlantis-bulletin, #atlantis, #atlantis-help, #atlantis-checkpoint. Every
+# Slack-linked signup is invited to all of them, and the users page can invite
+# everyone who is already here.
+SLACK_AUTOJOIN_CHANNEL_IDS = [
+    channel_id for channel_id in os.environ.get(
+        "SLACK_AUTOJOIN_CHANNEL_IDS",
+        "C0B6SSFHNUD,C0ATSHVECBG,C0AUP8VUU6T,C0BL0GP8XUK",
+    ).split(",") if channel_id
+]
 
 TEST_RUNNER = "atlantis.testrunner.AtlantisTestRunner"
 
