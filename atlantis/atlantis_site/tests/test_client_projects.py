@@ -5,7 +5,7 @@ from django.test import override_settings
 from django.urls import reverse
 from django.utils.html import escape
 
-from ..hca import IdentityUnavailable
+from ..hca import AddressUnavailable, IdentityUnavailable
 from ..models import Journal, Timelapse, Project, Ship
 from ..checklists import SHIP_CHECKLIST
 from .base import (
@@ -1078,6 +1078,75 @@ class YswsEligibilityGateTests(BaseTestCase):
 			any("still reviewing" in text for text in message_texts(response)),
 			message_texts(response),
 		)
+
+
+class AddressGateTests(BaseTestCase):
+	def setUp(self):
+		super().setUp()
+		cache.clear()
+		self.user = make_user("addressless")
+		self.client.force_login(self.user)
+
+	def _create(self):
+		return self.client.post(
+			reverse("create_project"),
+			{"title": "New Project", "description": "Something cool.", "printables_url": ""},
+		)
+
+	def test_no_address_cannot_create(self):
+		self.fetch_addresses_mock.return_value = []
+		response = self._create()
+		self.assertEqual(Project.objects.count(), 0)
+		self.assertIn("Add an address on HCA to ship", message_texts(response))
+
+	def test_address_without_street_or_country_does_not_count(self):
+		self.fetch_addresses_mock.return_value = [{"id": "adr_1", "city": "Shelburne"}]
+		self._create()
+		self.assertEqual(Project.objects.count(), 0)
+
+	def test_unreachable_hca_blocks_creation(self):
+		self.fetch_addresses_mock.side_effect = AddressUnavailable("hca down")
+		response = self._create()
+		self.assertEqual(Project.objects.count(), 0)
+		self.assertTrue(
+			any("Couldn't reach Hack Club" in text for text in message_texts(response)),
+			message_texts(response),
+		)
+
+	def test_projects_page_disables_add_button(self):
+		self.fetch_addresses_mock.return_value = []
+		response = self.client.get(reverse("projects"))
+		self.assertContains(response, "Add an address on HCA to ship")
+		self.assertNotContains(response, 'id="createProjectModal"')
+
+	def test_no_address_cannot_ship(self):
+		project = make_project(self.user, shippable=True)
+		make_journal(project, time_spent=200)
+		self.fetch_addresses_mock.return_value = []
+		response = self.client.post(reverse("ship_project", args=[project.id]), ship_checklist())
+		self.assertEqual(Ship.objects.count(), 0)
+		self.assertIn("Add an address on HCA to ship", message_texts(response))
+
+	def test_ship_button_shows_the_reason(self):
+		project = make_project(self.user, shippable=True)
+		make_journal(project, time_spent=200)
+		self.fetch_addresses_mock.return_value = []
+		response = self.client.get(reverse("project_detail", args=[project.id]))
+		self.assertFalse(response.context["can_ship"])
+		self.assertContains(response, "Add an address on HCA to ship")
+
+	def test_address_added_later_is_picked_up_immediately(self):
+		self.fetch_addresses_mock.return_value = []
+		self._create()
+		cache.clear()  # the create rate limit, not the address answer
+		self.fetch_addresses_mock.return_value = [{"line_1": "1 Main St", "country": "US"}]
+		self._create()
+		self.assertEqual(Project.objects.count(), 1)
+
+	def test_yes_is_cached(self):
+		self.client.get(reverse("projects"))
+		self.client.get(reverse("projects"))
+		self.assertEqual(self.fetch_addresses_mock.call_count, 1)
 
 
 class UpdateEditorModelTests(BaseTestCase):

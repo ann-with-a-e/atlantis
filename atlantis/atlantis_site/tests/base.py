@@ -285,6 +285,17 @@ def message_texts(response):
 	return [str(m) for m in get_messages(response.wsgi_request)]
 
 
+TEST_HCA_ADDRESS = {
+	"id": "adr_test",
+	"line_1": "15 Falls Rd",
+	"city": "Shelburne",
+	"state": "VT",
+	"postal_code": "05482",
+	"country": "US",
+	"primary": True,
+}
+
+
 @override_settings(
 	STORAGES=TEST_STORAGES,
 	MEDIA_URL="/media/",
@@ -331,6 +342,15 @@ class BaseTestCase(TestCase):
 			patcher = patch(target, return_value={"makesCount": 0})
 			self.model_info_mocks.append(patcher.start())
 			self.addCleanup(patcher.stop)
+
+		# Creating and shipping both check HCA for an address; every user here
+		# has one unless a test says otherwise.
+		patcher = patch(
+			"atlantis_site.views.helpers.fetch_addresses",
+			return_value=[dict(TEST_HCA_ADDRESS)],
+		)
+		self.fetch_addresses_mock = patcher.start()
+		self.addCleanup(patcher.stop)
 
 		self.image_url_mocks = {}
 		for target in self.IMAGE_URL_TARGETS:

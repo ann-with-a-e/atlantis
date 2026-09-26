@@ -13,8 +13,8 @@ from ..models import (
     PAYOUT_MULTIPLIER_DEFAULT, PEARLS_PER_HOUR, detect_editor, is_editor_model_file
 )
 from ..hca import (
-    IdentityUnavailable, VERIFICATION_INELIGIBLE, VERIFICATION_PENDING,
-    VERIFICATION_VERIFIED, refresh_verification
+    AddressUnavailable, IdentityUnavailable, VERIFICATION_INELIGIBLE,
+    VERIFICATION_PENDING, VERIFICATION_VERIFIED, fetch_addresses, refresh_verification
 )
 
 from decimal import Decimal, ROUND_HALF_EVEN
@@ -268,6 +268,59 @@ def ysws_block_reason(user):
             return ""
 
     return _ineligible_message(profile.verification_status, profile.ysws_eligible)
+
+NO_ADDRESS_MESSAGE = "Add an address on HCA to ship"
+ADDRESS_UNAVAILABLE_MESSAGE = (
+    "Couldn't reach Hack Club to check your address. Try again in a moment."
+)
+
+# How long a "yes, there's an address" answer is trusted before HCA is asked
+# again. Only the yes is cached: someone who has just added one should be able
+# to go straight back and try again.
+ADDRESS_CHECK_TTL = 10 * 60
+
+
+def _is_usable_address(address):
+    """An address we could actually put on a parcel."""
+    street = address.get("line_1") or address.get("street_address")
+    return bool(street and address.get("country"))
+
+
+def address_block_reason(user):
+    """Why this user may not create projects or ship for want of an address, or
+    "" if HCA has a usable one on file.
+
+    A project only exists to be shipped, and a ship only pays out in things
+    that get mailed, so there is no point starting one without somewhere to
+    send them. Addresses live on HCA, never here, so it is asked live.
+    """
+    cache_key = f"has-address:{user.id}"
+    if cache.get(cache_key):
+        return ""
+
+    profile = getattr(user, "hackclub_profile", None)
+    if profile is None:
+        return NO_ADDRESS_MESSAGE
+
+    try:
+        addresses = fetch_addresses(profile)
+    except AddressUnavailable:
+        return ADDRESS_UNAVAILABLE_MESSAGE
+
+    if not any(_is_usable_address(address) for address in addresses):
+        return NO_ADDRESS_MESSAGE
+
+    cache.set(cache_key, 1, timeout=ADDRESS_CHECK_TTL)
+    return ""
+
+
+def ship_block_reason(user):
+    """Why this user may not create projects or ship, or "" if they may.
+
+    Eligibility comes first: somebody HCA has turned down should hear that, not
+    be sent off to add an address they can't use.
+    """
+    return ysws_block_reason(user) or address_block_reason(user)
 
 def internal_comments_for_project(project):
     """Reviewer-only comments on every ship of a project, newest first."""
