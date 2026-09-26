@@ -52,9 +52,14 @@ def _logged_timelapses(user):
 	`at` is when the work happened: recorded_at, falling back to when the
 	journal was written for legacy Lookout rows that never recorded one.
 	"""
+	return _all_logged_timelapses().filter(owner=user)
+
+
+def _all_logged_timelapses():
+	"""_logged_timelapses, for everyone at once."""
 	return (
 		Timelapse.objects
-		.filter(journal__isnull=False, owner=user, journal__project__deleted=False)
+		.filter(journal__isnull=False, journal__project__deleted=False)
 		.annotate(at=Coalesce("recorded_at", "journal__created_at"))
 	)
 
@@ -67,8 +72,13 @@ def tracked_minutes_by_week(user):
 	a zone the database isn't told about, and a second implementation of that
 	in SQL is a second thing to get wrong across the DST change.
 	"""
+	return _bucket_by_week(_logged_timelapses(user).values_list("at", "tracked_seconds"))
+
+
+def _bucket_by_week(rows):
+	"""{week index or PREP: minutes} from (moment, seconds) pairs."""
 	totals = {}
-	for at, seconds in _logged_timelapses(user).values_list("at", "tracked_seconds"):
+	for at, seconds in rows:
 		key = PREP if weeks.is_prep(at) else weeks.week_for(at)
 		totals[key] = totals.get(key, 0) + (seconds or 0)
 	return {key: seconds // 60 for key, seconds in totals.items()}
@@ -254,9 +264,51 @@ class Standing:
 def standing(user, now=None):
 	"""Where `user` stands right now — the one entry point everything reads."""
 	now = now or timezone.now()
-	tracked = tracked_minutes_by_week(user)
-	savers = saver_hours_by_week(user)
-	overrides = _overrides(user)
+	overrides = {index: row.override for index, row in _overrides(user).items()}
+	return _build_standing(
+		tracked_minutes_by_week(user), saver_hours_by_week(user), overrides, now
+	)
+
+
+def standings(now=None):
+	"""{user id: Standing} for everyone who has logged time or held a saver.
+
+	The same answer standing() gives, in three queries rather than three per
+	user, for the pages that need the whole field at once. Anyone who has done
+	neither is left out: they have no hours to judge, and counting every
+	account that ever signed in would have every week "missed" by people who
+	never started.
+	"""
+	now = now or timezone.now()
+
+	rows = {}
+	for owner, at, seconds in _all_logged_timelapses().values_list("owner", "at", "tracked_seconds"):
+		rows.setdefault(owner, []).append((at, seconds))
+	tracked = {owner: _bucket_by_week(pairs) for owner, pairs in rows.items()}
+
+	savers = {}
+	for owner, index, hours in (
+		SaverCredit.objects.values_list("user", "week_index")
+		.order_by()
+		.annotate(hours=Count("id"))
+	):
+		savers.setdefault(owner, {})[index] = hours
+
+	overrides = {}
+	for owner, index, value in WeekOutcome.objects.values_list("user", "week_index", "override"):
+		overrides.setdefault(owner, {})[index] = value
+
+	return {
+		owner: _build_standing(
+			tracked.get(owner, {}), savers.get(owner, {}), overrides.get(owner, {}), now
+		)
+		for owner in tracked.keys() | savers.keys()
+	}
+
+
+def _build_standing(tracked, savers, overrides, now):
+	"""A Standing from one user's {week: minutes}, {week: saver hours} and
+	{week: override}."""
 	closed = set(weeks.closed_weeks(now))
 	live = weeks.current_week(now)
 
@@ -268,7 +320,7 @@ def standing(user, now=None):
 				saver_hours=savers.get(index, 0),
 				closed=index in closed,
 				current=index == live,
-				override=overrides[index].override if index in overrides else "",
+				override=overrides.get(index, ""),
 			)
 			for index in range(1, weeks.week_count() + 1)
 		],

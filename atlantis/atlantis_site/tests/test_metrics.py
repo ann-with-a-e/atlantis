@@ -7,20 +7,23 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.test import override_settings
 from django.core.cache import cache
 from django.core.management import call_command
 from django.urls import reverse
 from django.utils import timezone
 
-from .. import weeks
-from ..models import ActiveDay, Journal, MetricsSnapshot, Profile
+from .. import challenge, weeks
+from ..models import ActiveDay, Journal, MetricsSnapshot, Profile, SaverCredit
 from ..presence import WRITE_EVERY, record_seen
+from ..views.admin.metrics import build_streak_stats
 from .base import (
 	BaseTestCase,
 	approve_timelapse,
 	grant_perms,
 	make_journal,
 	make_project,
+	make_timelapse,
 	make_user,
 )
 
@@ -358,3 +361,93 @@ class MetricsSnapshotTests(BaseTestCase):
 		self.assertEqual(self.client.get(reverse("metrics"), {"day": "2026-01-01"}).status_code, 404)
 		self.assertEqual(self.client.get(reverse("metrics"), {"day": "nonsense"}).status_code, 404)
 		self.assertEqual(self.client.get(reverse("metrics"), {"day": "2026-02-31"}).status_code, 404)
+
+
+# A fixed calendar, so how far through the week "now" is — and so who is on
+# pace — doesn't depend on the day the suite runs.
+FIXED_CHALLENGE = {"CHALLENGE_START_DATE": "2026-09-21", "CHALLENGE_WEEKS": 8}
+EASTERN = ZoneInfo("America/New_York")
+
+
+@override_settings(**FIXED_CHALLENGE, CHALLENGE_TIMEZONE="America/New_York")
+class MetricsStreakTests(BaseTestCase):
+	def _builder(self, name, *minutes_at):
+		user = make_user(name, slack_id=f"U-{name}")
+		project = make_project(user)
+		for minutes, when in minutes_at:
+			journal = make_journal(project, time_spent=0)
+			make_timelapse(project, journal=journal, minutes=minutes, recorded_at=when)
+		return user
+
+	def test_the_live_week_splits_into_done_on_pace_and_behind(self):
+		# Thursday noon: half the week gone, so on pace is 2h 30m so far.
+		now = datetime(2026, 9, 24, 12, tzinfo=EASTERN)
+		monday = datetime(2026, 9, 22, 10, tzinfo=EASTERN)
+		self._builder("done", (300, monday))
+		self._builder("on-pace", (200, monday))
+		self._builder("behind", (60, monday))
+		saved = self._builder("saved", (100, monday))
+		SaverCredit.objects.bulk_create([SaverCredit(user=saved, week_index=1) for _ in range(1)])
+		# Prep time only: a participant, but nothing on this week.
+		self._builder("prepper", (500, datetime(2026, 9, 15, 10, tzinfo=EASTERN)))
+		# Signed up and never logged anything: not a participant at all.
+		make_user("lurker", slack_id="U-lurker")
+
+		stats = build_streak_stats(now)
+
+		self.assertEqual(stats["live_week"], 1)
+		self.assertEqual(stats["elapsed_pct"], 50)
+		self.assertEqual(stats["participants"], 5)
+		self.assertEqual(stats["still_in"], 5)
+		self.assertEqual(stats["done"], 1)
+		self.assertEqual(stats["short"], 4)
+		# on-pace (200m); saved is 100m + 1h saver = 160m, also ahead of 150m.
+		self.assertEqual(stats["on_pace"], 2)
+		self.assertEqual(stats["behind_pace"], 2)
+		self.assertEqual(stats["nothing_yet"], 1)
+		self.assertEqual(stats["saver_hours_this_week"], 1)
+		self.assertEqual(
+			[row["value"] for row in stats["this_week"]],
+			[1, 0, 1, 1, 1, 0, 1],
+		)
+
+	def test_closed_weeks_count_who_is_out_and_who_was_rescued(self):
+		# Wednesday of week 2: week 1 has closed.
+		now = datetime(2026, 9, 30, 12, tzinfo=EASTERN)
+		week_1 = datetime(2026, 9, 23, 10, tzinfo=EASTERN)
+		self._builder("survivor", (300, week_1))
+		self._builder("dropped", (60, week_1))
+		rescued = self._builder("rescued", (120, week_1))
+		SaverCredit.objects.bulk_create([SaverCredit(user=rescued, week_index=1) for _ in range(3)])
+
+		stats = build_streak_stats(now)
+
+		self.assertEqual(stats["live_week"], 2)
+		self.assertEqual(stats["participants"], 3)
+		self.assertEqual(stats["out"], 1)
+		self.assertEqual(stats["still_in"], 2)
+		self.assertEqual(stats["weeks_rescued"], 1)
+		self.assertEqual(stats["survived_by_week"][0]["value"], 2)
+		self.assertEqual(stats["survived_by_week"][0]["sub"], "1 missed")
+		# Whoever is out isn't counted against this week.
+		self.assertEqual(stats["short"], 2)
+
+	def test_the_bulk_standings_agree_with_one_at_a_time(self):
+		now = datetime(2026, 9, 30, 12, tzinfo=EASTERN)
+		users = [
+			self._builder("a", (300, datetime(2026, 9, 23, 10, tzinfo=EASTERN))),
+			self._builder("b", (60, datetime(2026, 9, 23, 10, tzinfo=EASTERN)), (90, now)),
+		]
+		SaverCredit.objects.create(user=users[1], week_index=1)
+
+		bulk = challenge.standings(now)
+
+		for user in users:
+			self.assertEqual(bulk[user.id], challenge.standing(user, now))
+
+	def test_before_the_weeks_open_there_is_no_live_week(self):
+		stats = build_streak_stats(datetime(2026, 9, 18, 12, tzinfo=EASTERN))
+
+		self.assertFalse(stats["started"])
+		self.assertIsNone(stats["live_week"])
+		self.assertNotIn("done", stats)

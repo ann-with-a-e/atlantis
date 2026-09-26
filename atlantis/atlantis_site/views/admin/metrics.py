@@ -25,11 +25,12 @@ from ...models import (
     Item,
     MetricsSnapshot,
     Order,
+    SaverCredit,
     Timelapse,
     PAYOUT_MULTIPLIER_DEFAULT,
     detect_editor,
 )
-from ... import weeks
+from ... import challenge, weeks
 from ..helpers import (
     add_bars,
     approved_minutes_for_journals,
@@ -53,6 +54,19 @@ WINDOW_DAYS = 30
 # The shorter window, for the averages that should react to this week rather
 # than to the trailing month.
 SHORT_WINDOW_DAYS = 7
+
+# The buckets the "this week so far" chart sorts people still in into, as
+# (label, upper bound in minutes, exclusive). The last is open-ended, and is
+# exactly the people who are done.
+STREAK_BUCKETS = [
+    ("Nothing yet", 1),
+    ("Under 1h", 60),
+    ("1-2h", 120),
+    ("2-3h", 180),
+    ("3-4h", 240),
+    ("4-5h", weeks.WEEKLY_MINUTES),
+    ("Done (5h+)", None),
+]
 
 # How many days the daily bar charts go back. Short enough that each bar is
 # still readable in a column of them.
@@ -83,6 +97,100 @@ def _daily_rows(counts, days, today, value=lambda n: n):
         {"label": day.strftime("%b %-d"), "value": value(counts.get(day, 0))}
         for day in (today - timedelta(days=offset) for offset in range(days - 1, -1, -1))
     ])
+
+
+def _week_elapsed(index, now):
+    """How far through week `index` `now` is, 0-1."""
+    start, end = weeks.week_bounds(index)
+    return min(max((now - start) / (end - start), 0.0), 1.0)
+
+
+def build_streak_stats(now):
+    """Where the field stands in the weekly challenge.
+
+    Counted over challenge.standings(), so a participant is anyone who has
+    logged time or held a saver — not every account on the site. "Behind
+    pace" is the dropping-out forecast: someone whose hours so far, carried on
+    at the same rate to Sunday midnight, come up short of the five.
+    """
+    field = list(challenge.standings(now).values())
+    still_in = [s for s in field if not s.eliminated]
+    live_index = weeks.current_week(now)
+
+    stats = {
+        "started": weeks.has_started(now),
+        "ended": weeks.has_ended(now),
+        "participants": len(field),
+        "still_in": len(still_in),
+        "out": len(field) - len(still_in),
+        "survival_rate": _pct(len(still_in), len(field)),
+        "live_week": live_index,
+        "live_label": weeks.week_label(live_index) if live_index else "",
+        "weekly_hours": weeks.WEEKLY_HOURS,
+        "printer_unlocked": sum(1 for s in still_in if s.printer_unlocked),
+    }
+
+    # Weeks that closed short on logged time and were met anyway: savers,
+    # bought or granted, or an organizer's pass.
+    stats["weeks_rescued"] = sum(
+        1 for s in field for w in s.weeks
+        if w.closed and w.met and w.tracked_minutes < weeks.WEEKLY_MINUTES
+    )
+
+    closed = weeks.closed_weeks(now)
+    stats["survived_by_week"] = add_bars([
+        {
+            "label": f"Week {index}",
+            "value": sum(1 for s in field if s.weeks[index - 1].met),
+            "sub": f"{sum(1 for s in field if s.weeks[index - 1].missed)} missed",
+        }
+        for index in closed
+    ])
+
+    if live_index is None:
+        return stats
+
+    elapsed = _week_elapsed(live_index, now)
+    live = [s.current for s in still_in]
+    done = [w for w in live if w.met]
+    short = [w for w in live if not w.met]
+    # Credited so far against the share of the five the elapsed part of the
+    # week asks for: level with the clock is on pace, below it is not.
+    behind = [w for w in short if w.credited_minutes < elapsed * weeks.WEEKLY_MINUTES]
+    shortfall = sum(w.shortfall_minutes for w in short)
+
+    counts = [0] * len(STREAK_BUCKETS)
+    for w in live:
+        for i, (_label, bound) in enumerate(STREAK_BUCKETS):
+            if bound is None or w.credited_minutes < bound:
+                counts[i] += 1
+                break
+
+    stats.update({
+        "done": len(done),
+        "done_rate": _pct(len(done), len(live)),
+        "short": len(short),
+        "on_pace": len(short) - len(behind),
+        "behind_pace": len(behind),
+        "behind_rate": _pct(len(behind), len(live)),
+        "nothing_yet": sum(1 for w in live if not w.credited_minutes),
+        "elapsed_pct": round(elapsed * 100),
+        "pace_display": format_minutes(elapsed * weeks.WEEKLY_MINUTES),
+        # Formatted here rather than in the template: a snapshot stores this
+        # as JSON, and a datetime would come back a string |date can't read.
+        "deadline_display": weeks.deadline(live_index).astimezone(weeks.zone()).strftime("%a %b %-d, %-I:%M%p ET"),
+        "shortfall_hours": _hours(shortfall),
+        "avg_shortfall_display": format_minutes(shortfall / len(short) if short else 0),
+        "avg_credited_display": format_minutes(
+            sum(w.credited_minutes for w in live) / len(live) if live else 0
+        ),
+        "saver_hours_this_week": SaverCredit.objects.filter(week_index=live_index).count(),
+        "this_week": add_bars([
+            {"label": label, "value": count}
+            for (label, _bound), count in zip(STREAK_BUCKETS, counts)
+        ]),
+    })
+    return stats
 
 
 @timezone.override(settings.CHALLENGE_TIMEZONE)
@@ -484,6 +592,7 @@ def build_metrics(now):
 
     return {
         "activity": activity_stats,
+        "streaks": build_streak_stats(now),
         "hours": hours_stats,
         "projects": projects_stats,
         "ships": ships_stats,

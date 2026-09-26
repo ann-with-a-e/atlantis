@@ -82,6 +82,88 @@
         </div>
     </section>
 
+    {% if streaks %}
+    <section class="metrics-section">
+        <h2>Streaks</h2>
+        {% if not streaks.started %}
+        <p class="metrics-generated">The challenge weeks haven't started yet. {{ streaks.participants }} participant{{ streaks.participants|pluralize }} logged time in prep so far.</p>
+        {% else %}
+        {% if streaks.live_week %}
+        <p class="metrics-generated">{{ streaks.live_label }} &middot; {{ streaks.elapsed_pct }}% through, closes {{ streaks.deadline_display }}. On pace means at least {{ streaks.pace_display }} so far.</p>
+        <div class="stat-grid">
+            <div class="stat-card good">
+                <div class="stat-value">{{ streaks.done }}</div>
+                <div class="stat-label">Done this week</div>
+                <div class="stat-sub">{{ streaks.done_rate }}% of those still in have their {{ streaks.weekly_hours }}h</div>
+            </div>
+            <div class="stat-card accent">
+                <div class="stat-value">{{ streaks.on_pace }}</div>
+                <div class="stat-label">Short but on pace</div>
+                <div class="stat-sub">not done yet, ahead of the clock</div>
+            </div>
+            <div class="stat-card bad">
+                <div class="stat-value">{{ streaks.behind_pace }}</div>
+                <div class="stat-label">Behind pace to drop out</div>
+                <div class="stat-sub">{{ streaks.behind_rate }}% of those still in &middot; {{ streaks.nothing_yet }} with nothing logged</div>
+            </div>
+            <div class="stat-card warn">
+                <div class="stat-value">{{ streaks.short }}</div>
+                <div class="stat-label">Not done this week</div>
+                <div class="stat-sub">{{ streaks.shortfall_hours }}h short in total &middot; {{ streaks.avg_shortfall_display }} each on average</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ streaks.avg_credited_display }}</div>
+                <div class="stat-label">Avg credited this week</div>
+                <div class="stat-sub">logged plus savers, per person still in</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ streaks.saver_hours_this_week }}h</div>
+                <div class="stat-label">Saver hours on this week</div>
+                <div class="stat-sub">bought or granted</div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="stat-grid">
+            <div class="stat-card accent">
+                <div class="stat-value">{{ streaks.participants }}</div>
+                <div class="stat-label">Participants</div>
+                <div class="stat-sub">logged time or held a saver</div>
+            </div>
+            <div class="stat-card good">
+                <div class="stat-value">{{ streaks.still_in }}</div>
+                <div class="stat-label">Still in</div>
+                <div class="stat-sub">{{ streaks.survival_rate }}% of participants</div>
+            </div>
+            <div class="stat-card bad">
+                <div class="stat-value">{{ streaks.out }}</div>
+                <div class="stat-label">Out of the program</div>
+                <div class="stat-sub">missed a closed week, not yet saved</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ streaks.weeks_rescued }}</div>
+                <div class="stat-label">Weeks rescued</div>
+                <div class="stat-sub">closed short on logged time, met by savers or override</div>
+            </div>
+            {% if streaks.ended %}
+            <div class="stat-card good">
+                <div class="stat-value">{{ streaks.printer_unlocked }}</div>
+                <div class="stat-label">Printers unlocked</div>
+                <div class="stat-sub">survived every week</div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="chart-grid">
+            {% if streaks.live_week %}
+            {% include "root/_metric_chart.html" with title="Credited this week, those still in" rows=streaks.this_week empty="Nobody's in yet" %}
+            {% endif %}
+            {% include "root/_metric_chart.html" with title="Met each closed week" rows=streaks.survived_by_week fill_class="good" empty="No week has closed yet" %}
+        </div>
+        {% endif %}
+    </section>
+    {% endif %}
+
     <section class="metrics-section">
         <h2>Time logged</h2>
         <div class="stat-grid">
