@@ -123,15 +123,41 @@
                         <svg><use href="#i-email"></use></svg>atlantis@hackclub.com
                     </a>
 
-                    <a class="footer-line" href="mailto:mihir@hackclub.com">
-                        <svg><use href="#i-like-fill"></use></svg>sponsored by Mihir
-                    </a>
+                    <span class="footer-line">
+                        <svg><use href="#i-like-fill"></use></svg>
+                        <span id="footer-credits" style="white-space: nowrap;">made with love by <a href="https://github.com/swaritnarang">swarit</a>, <a href="https://github.com/kcgr0690">kc</a>, <a href="https://github.com/ArcaEge">arca</a>, and <a href="https://github.com/mikidoodle">mihir</a></span>
+                    </span>
                 </nav>
             </div>
 
             <p class="footer-legal">&copy; {% now "Y" %} Hack Club. Registered under The Hack Foundation, a 501(c)(3) nonprofit (EIN: 81-2908499).</p>
         </footer>
     </div>
+
+    <script>
+        (function () {
+            const credits = document.getElementById("footer-credits");
+            if (!credits) return;
+            const people = [
+                { name: "swarit", url: "https://github.com/swaritnarang" },
+                { name: "kc", url: "https://github.com/kcgr0690" },
+                { name: "arca", url: "https://github.com/ArcaEge" },
+                { name: Math.random() < 0.01 ? "big mihi" : "mihir", url: "https://github.com/mikidoodle" },
+            ];
+            for (let i = people.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [people[i], people[j]] = [people[j], people[i]];
+            }
+            credits.replaceChildren(document.createTextNode("made with love by "));
+            people.forEach((person, i) => {
+                if (i > 0) credits.append(i === people.length - 1 ? ", and " : ", ");
+                const a = document.createElement("a");
+                a.href = person.url;
+                a.textContent = person.name;
+                credits.append(a);
+            });
+        })();
+    </script>
 
     <script>
         (function () {
