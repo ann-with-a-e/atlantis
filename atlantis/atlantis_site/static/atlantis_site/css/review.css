@@ -1689,6 +1689,34 @@
     color: var(--oc-on-accent);
 }
 
+/* All / Shipped, beside the start button. */
+.root-page .rq-filter {
+    display: inline-flex;
+    margin-left: auto;
+    padding: 2px;
+    border: 1px solid var(--oc-line-2);
+    border-radius: 8px;
+    background: var(--oc-shallow);
+}
+
+.root-page .rq-filter a {
+    padding: 5px 12px;
+    border-radius: 6px;
+    color: var(--oc-ink-3);
+    font-size: 12.5px;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.root-page .rq-filter a:hover {
+    color: var(--oc-ink-2);
+}
+
+.root-page .rq-filter a[aria-current="true"] {
+    background: var(--oc-btn);
+    color: var(--oc-on-accent);
+}
+
 /* ---------- paging the decided table ---------- */
 
 .root-page .rq-pager {

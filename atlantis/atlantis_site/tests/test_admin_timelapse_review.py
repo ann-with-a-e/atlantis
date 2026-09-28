@@ -251,6 +251,20 @@ class TimelapseReviewQueueTests(BaseTestCase):
 		response = self.client.get(reverse("timelapse_review_dash"))
 		self.assertEqual(list(response.context["projects"]), [])
 
+	def test_the_shipped_filter_keeps_only_projects_holding_a_ship(self):
+		make_journal(self.project)
+		shipped = make_project(make_user("shipper"), shippable=True)
+		make_ship(shipped, timelapse_approved=False)
+
+		everything = self.client.get(reverse("timelapse_review_dash"))
+		self.assertEqual(
+			{p.id for p in everything.context["projects"]}, {self.project.id, shipped.id}
+		)
+
+		response = self.client.get(reverse("timelapse_review_dash") + "?shipped=1")
+		self.assertEqual([p.id for p in response.context["projects"]], [shipped.id])
+		self.assertEqual(response.context["pending_count"], 1)
+
 
 class LockedReadTests(BaseTestCase):
 	"""The sign-off re-reads its lapses under FOR UPDATE. That read has to be lockable.
