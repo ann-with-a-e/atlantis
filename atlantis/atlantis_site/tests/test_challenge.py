@@ -422,6 +422,29 @@ class PayoutSplitTests(BaseTestCase):
             self.assertEqual(drawn, {1: 120})
             self.assertEqual([line.label for line in lines], ["Prep weeks", "Week 1"])
 
+    def test_the_grace_pair_is_still_paid_week_by_week(self):
+        """Ten across weeks 1-2 keeps you in, but pay is each week's own five.
+
+        2h in week 1 and 8h in week 2 is 2h at 2, then 5h at 2 and 3h at 7 —
+        not ten hours at the base rate as if the pair were one week.
+        """
+        with during_week(3):
+            journals = self._journals((120, in_week(1)), (480, in_week(2)))
+            pearls, lines, drawn = challenge.payout_breakdown(journals, 600)
+            self.assertEqual(pearls, 4 + 10 + 21)
+            self.assertEqual(drawn, {1: 120, 2: 300})
+            self.assertEqual(
+                [(line.week, line.minutes, line.rate) for line in lines],
+                [(1, 120, 2), (2, 300, 2), (2, 180, 7)],
+            )
+
+    def test_a_short_week_1_does_not_lend_week_2_its_cheap_hours(self):
+        with during_week(3):
+            journals = self._journals((60, in_week(1)), (540, in_week(2)))
+            pearls, _lines, _drawn = challenge.payout_breakdown(journals, 600)
+            # 1h at 2 in week 1; 5h at 2 and 4h at 7 in week 2.
+            self.assertEqual(pearls, 2 + 10 + 28)
+
     def test_the_multiplier_scales_every_bracket(self):
         with during_week(1):
             journals = self._journals((480, in_week(1)))
@@ -997,6 +1020,35 @@ class StreakPanelTests(BaseTestCase):
             self._log(60, in_week(1))
             response = self.client.get(reverse("projects"))
             self.assertContains(response, "out of the program")
+
+    def test_week_1_says_the_ten_are_not_due_when_the_countdown_ends(self):
+        with during_week(1):
+            self._log(120, in_week(1))
+            response = self.client.get(reverse("dashboard"))
+            self.assertContains(response, "of 10 hours across weeks 1 and 2")
+            self.assertContains(response, "don't need all 10 hours by the end of this")
+            deadline = weeks.deadline(2).astimezone(weeks.zone())
+            self.assertContains(response, f"until {deadline:%a %b} {deadline.day}, 11:59 PM Eastern")
+
+    def test_week_2_says_the_ten_are_due_when_the_countdown_ends(self):
+        with during_week(2):
+            self._log(120, in_week(1))
+            response = self.client.get(reverse("dashboard"))
+            self.assertContains(response, "due when this countdown ends")
+            self.assertNotContains(response, "don't need all")
+
+    def test_week_3_has_no_grace_note(self):
+        with during_week(3):
+            self._log(600, in_week(1))
+            response = self.client.get(reverse("dashboard"))
+            self.assertContains(response, "of 5 hours")
+            self.assertNotContains(response, "count together")
+
+    def test_the_fallback_deadline_is_in_eastern(self):
+        with during_week(3):
+            self._log(600, in_week(1))
+            response = self.client.get(reverse("dashboard"))
+            self.assertContains(response, "ends Sun 11:59 PM")
 
     def test_before_the_start_it_says_so_instead_of_counting_down(self):
         response = self.client.get(reverse("dashboard"))

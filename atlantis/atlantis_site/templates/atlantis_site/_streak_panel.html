@@ -30,7 +30,7 @@ Rendered on the deck. Takes the context dashboard.challenge_context builds.
             say something true on its own.
             {% endcomment %}
             <span class="streak-clock" data-week-deadline="{{ week_deadline }}">
-                ends {{ week.deadline|date:"D g:i A" }}
+                ends {{ week.deadline_display }}
             </span>
         </div>
 
@@ -53,6 +53,24 @@ Rendered on the deck. Takes the context dashboard.challenge_context builds.
                 <span class="streak-left">{{ week.left_display }} to go</span>
             {% endif %}
         </p>
+
+        {% comment %}
+        The countdown above is this week's, but a grace week's bar is the pair's
+        ten, so without this it reads as though all ten are due when it hits
+        zero.
+        {% endcomment %}
+        {% if week.grace_due_later and not week.done %}
+            <p class="streak-hint">
+                You don't need all {{ week.required_hours }} hours by the end of this
+                countdown. {{ week.grace_label|capfirst }} count together, so you have
+                until {{ week.grace_deadline_display }} Eastern.
+            </p>
+        {% elif week.grace and not week.done %}
+            <p class="streak-hint">
+                {{ week.grace_label|capfirst }} count together: these {{ week.required_hours }}
+                hours are due when this countdown ends.
+            </p>
+        {% endif %}
 
     {% else %}
         <p class="streak-note">

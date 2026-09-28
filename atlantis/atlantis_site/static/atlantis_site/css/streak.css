@@ -112,6 +112,13 @@
     background-color: rgba(129, 199, 132, 0.3);
 }
 
+/* The grace-week line under the legend: when the pair's hours are really due. */
+.streak-hint {
+    margin: 0.3em 0 0;
+    font-size: 0.82em;
+    opacity: 0.8;
+}
+
 .streak-note {
     margin: 0;
     opacity: 0.9;

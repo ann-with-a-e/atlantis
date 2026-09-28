@@ -219,6 +219,20 @@ class Week:
 		return self.required_minutes // 60
 
 	@property
+	def grace_due_later(self):
+		"""A grace week before the last: its countdown isn't when the ten are due."""
+		return self.grace and self.index != weeks.grace_weeks()[-1]
+
+	@property
+	def grace_deadline(self):
+		"""When the pair's ten are actually due — the last grace week's end."""
+		return weeks.deadline(weeks.grace_weeks()[-1])
+
+	@property
+	def grace_deadline_display(self):
+		return _local_display(self.grace_deadline, "%a %b %-d, %-I:%M %p")
+
+	@property
 	def grace_label(self):
 		""""weeks 1 and 2", the way a sentence names the pair."""
 		return "weeks " + " and ".join(str(i) for i in weeks.grace_weeks())
@@ -242,6 +256,12 @@ class Week:
 	@property
 	def deadline(self):
 		return weeks.deadline(self.index)
+
+	@property
+	def deadline_display(self):
+		""""Sun 11:59 PM", in the program's zone — TIME_ZONE is UTC, so a
+		template's |date would print Monday morning."""
+		return _local_display(self.deadline, "%a %-I:%M %p")
 
 
 @dataclass
@@ -469,6 +489,10 @@ def journaling_blocked_reason(user, now=None):
 	if state.started and state.eliminated:
 		return elimination_reason(user, now)
 	return ""
+
+
+def _local_display(moment, fmt):
+	return moment.astimezone(weeks.zone()).strftime(fmt)
 
 
 def format_minutes(minutes):
