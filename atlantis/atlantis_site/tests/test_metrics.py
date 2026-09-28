@@ -429,17 +429,18 @@ class MetricsStreakTests(BaseTestCase):
 		)
 
 	def test_closed_weeks_count_who_is_out_and_who_was_rescued(self):
-		# Wednesday of week 2: week 1 has closed.
-		now = datetime(2026, 9, 30, 12, tzinfo=EASTERN)
+		# Wednesday of week 3: weeks 1 and 2, judged as a pair, have closed.
+		now = datetime(2026, 10, 7, 12, tzinfo=EASTERN)
 		week_1 = datetime(2026, 9, 23, 10, tzinfo=EASTERN)
-		self._builder("survivor", (300, week_1))
+		week_2 = datetime(2026, 9, 30, 10, tzinfo=EASTERN)
+		self._builder("survivor", (300, week_1), (300, week_2))
 		self._builder("dropped", (60, week_1))
-		rescued = self._builder("rescued", (120, week_1))
+		rescued = self._builder("rescued", (120, week_1), (300, week_2))
 		SaverCredit.objects.bulk_create([SaverCredit(user=rescued, week_index=1) for _ in range(3)])
 
 		stats = build_streak_stats(now)
 
-		self.assertEqual(stats["live_week"], 2)
+		self.assertEqual(stats["live_week"], 3)
 		self.assertEqual(stats["participants"], 3)
 		self.assertEqual(stats["out"], 1)
 		self.assertEqual(stats["still_in"], 2)

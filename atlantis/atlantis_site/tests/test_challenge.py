@@ -13,6 +13,8 @@ rather than against anything written down at the moment a week closed.
 
 from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
+from io import StringIO
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
@@ -24,6 +26,7 @@ from django.utils import timezone
 from .. import challenge, weeks
 from ..models import (
     Item, Order, PrinterClaim, Profile, SaverCredit, Ship, WeekOutcome,
+    WeekReminder,
 )
 from ..printers import item_key
 from .base import (
@@ -148,8 +151,9 @@ class StandingTests(BaseTestCase):
             self.assertEqual(challenge.standing(self.user).weeks[0].tracked_minutes, 0)
 
     def test_five_hours_meets_the_week(self):
-        with during_week(1):
-            self._log(300, in_week(1))
+        # Week 3: in weeks 1 and 2 the bar is the pair's ten.
+        with during_week(3):
+            self._log(300, in_week(3))
             week = challenge.standing(self.user).current
             self.assertTrue(week.met)
             self.assertEqual(week.percent, 100)
@@ -204,6 +208,97 @@ class StandingTests(BaseTestCase):
         self.assertEqual(challenge.elimination_reason(self.user), "")
 
 
+class GraceWeeksTests(BaseTestCase):
+    """Weeks 1 and 2 are judged together: ten across the pair keeps you in."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = make_user("shipper")
+        self.project = make_project(self.user)
+
+    def _log(self, minutes, when):
+        journal = make_journal(self.project, time_spent=0)
+        make_timelapse(self.project, journal=journal, minutes=minutes, recorded_at=when)
+
+    def test_a_short_week_1_is_not_missed_while_week_2_is_open(self):
+        with during_week(2):
+            self._log(60, in_week(1))
+            state = challenge.standing(self.user)
+            self.assertTrue(state.weeks[0].pending)
+            self.assertFalse(state.weeks[0].missed)
+            self.assertFalse(state.eliminated)
+            self.assertEqual(challenge.journaling_blocked_reason(self.user), "")
+
+    def test_week_2_asks_for_whatever_the_pair_still_needs(self):
+        with during_week(2):
+            self._log(180, in_week(1))
+            live = challenge.standing(self.user).current
+            self.assertEqual(live.required_minutes, 600)
+            self.assertEqual(live.left_minutes, 420)
+            self.assertFalse(live.done)
+
+    def test_ten_hours_across_the_pair_meets_both(self):
+        with after_week(2):
+            self._log(120, in_week(1))
+            self._log(480, in_week(2))
+            state = challenge.standing(self.user)
+            self.assertFalse(state.eliminated)
+            self.assertTrue(all(w.met for w in state.weeks))
+            self.assertEqual(state.printer_hours, 10)
+
+    def test_short_of_ten_drops_you_once_week_2_closes(self):
+        with after_week(2):
+            self._log(120, in_week(1))
+            self._log(360, in_week(2))
+            state = challenge.standing(self.user)
+            self.assertTrue(state.eliminated)
+            self.assertEqual(state.earliest_missed.index, 1)
+            # Two more hours make the pair's ten; week 2 met its own five.
+            self.assertEqual(state.saver_hours_needed, 2)
+            self.assertEqual(state.saver_hours_outstanding, 2)
+
+    def test_savers_on_either_week_count_towards_the_pair(self):
+        with after_week(2):
+            self._log(120, in_week(1))
+            self._log(360, in_week(2))
+            challenge.apply_saver(self.user, Item.Kind.SAVER_PAST, hours=2)
+            self.assertFalse(challenge.standing(self.user).eliminated)
+
+    def test_both_weeks_short_need_the_pair_made_up(self):
+        with after_week(2):
+            self._log(180, in_week(1))
+            self._log(60, in_week(2))
+            state = challenge.standing(self.user)
+            self.assertEqual(state.saver_hours_needed, 6)
+            self.assertIn("between them", challenge.elimination_reason(self.user))
+
+    def test_the_old_rule_still_passes_a_week_on_its_own_five(self):
+        """The pair is a relaxation: five in a week still meets that week."""
+        with after_week(2):
+            self._log(60, in_week(1))
+            self._log(300, in_week(2))
+            state = challenge.standing(self.user)
+            self.assertTrue(state.weeks[1].met)
+            self.assertTrue(state.weeks[0].missed)
+            self.assertEqual(state.saver_hours_needed, 4)
+
+    def test_week_3_stands_on_its_own_five(self):
+        with after_week(3):
+            self._log(600, in_week(2))
+            self._log(240, in_week(3))
+            state = challenge.standing(self.user)
+            self.assertFalse(state.weeks[2].grace)
+            self.assertTrue(state.weeks[2].missed)
+            self.assertEqual(state.earliest_missed.index, 3)
+
+    def test_close_week_leaves_a_pending_week_1_alone(self):
+        Profile.objects.get_or_create(user=self.user)
+        with during_week(2):
+            self._log(60, in_week(1))
+            call_command("close_week", "--no-notify", stdout=open("/dev/null", "w"))
+            self.assertFalse(WeekOutcome.objects.filter(user=self.user, week_index=1).exists())
+
+
 class PrinterBarTests(BaseTestCase):
     """Five hours a week towards forty, and no more."""
 
@@ -235,9 +330,9 @@ class PrinterBarTests(BaseTestCase):
             self.assertEqual(challenge.standing(self.user).printer_hours, 7)
 
     def test_nothing_banks_while_you_are_out(self):
-        with during_week(2):
-            self._log(60, in_week(1))   # week 1 closed short
-            self._log(300, in_week(2))  # and this week is full
+        with during_week(3):
+            self._log(60, in_week(1))   # the grace pair closed short
+            self._log(300, in_week(3))  # and this week is full
             state = challenge.standing(self.user)
             self.assertTrue(state.eliminated)
             self.assertEqual(state.printer_hours, 0)
@@ -416,8 +511,9 @@ class SaverPurchaseTests(BaseTestCase):
             self.assertEqual(blocked["Streak saver"], "")
 
     def test_the_missed_week_saver_revives_you(self):
-        with during_week(2):
+        with during_week(3):
             self._log(240, in_week(1))
+            self._log(300, in_week(2))
             self.assertTrue(challenge.standing(self.user).eliminated)
 
             self._buy(self.past)
@@ -468,8 +564,9 @@ class SaverPurchaseTests(BaseTestCase):
             self.assertEqual(Profile.objects.get(user=self.user).layers, 5)
 
     def test_refunding_a_saver_takes_the_hours_back(self):
-        with during_week(2):
+        with during_week(3):
             self._log(240, in_week(1))
+            self._log(300, in_week(2))
             self._buy(self.past)
             self.assertFalse(challenge.standing(self.user).eliminated)
 
@@ -505,7 +602,7 @@ class EliminationGateTests(BaseTestCase):
         return journal
 
     def test_shipping_is_blocked_after_a_missed_week(self):
-        with during_week(2):
+        with during_week(3):  # after the grace pair has closed
             self._log(60, in_week(1))
             response = self.client.post(
                 reverse("ship_project", args=[self.project.id]), ship_checklist(), follow=True
@@ -514,7 +611,7 @@ class EliminationGateTests(BaseTestCase):
             self.assertTrue(any("out of the program" in m for m in message_texts(response)))
 
     def test_logging_new_time_is_blocked_too(self):
-        with during_week(2):
+        with during_week(3):  # after the grace pair has closed
             self._log(60, in_week(1))
             response = self.client.post(
                 reverse("create_journal", args=[self.project.id]),
@@ -695,6 +792,76 @@ class CloseWeekCommandTests(BaseTestCase):
             self.assertIsNone(outcome.notified_at)
 
 
+@override_settings(CHALLENGE_START_DATE="2026-09-21", CHALLENGE_WEEKS=8)
+class RemindWeekCommandTests(BaseTestCase):
+    """The Saturday-evening DM telling people how much is left."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = make_user("shipper", slack_id="U0SHIP")
+        self.project = make_project(self.user)
+        patcher = patch("atlantis_site.views.helpers.send_slack_dm", return_value=True)
+        self.dm = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _log(self, minutes, when):
+        journal = make_journal(self.project, time_spent=0)
+        make_timelapse(self.project, journal=journal, minutes=minutes, recorded_at=when)
+
+    def _run(self, when):
+        with patch("django.utils.timezone.now", return_value=et(when)):
+            call_command("remind_week", stdout=StringIO())
+
+    def test_nothing_goes_out_before_saturday_evening(self):
+        self._run("2026-10-10 17:59")
+        self.dm.assert_not_called()
+
+    def test_someone_short_is_told_how_much_is_left(self):
+        self._log(130, et("2026-10-06 10:00"))
+        self._log(600, et("2026-09-23 10:00"))  # weeks 1-2 settled
+        self._run("2026-10-10 18:05")
+        self.dm.assert_called_once()
+        text = self.dm.call_args.args[0]
+        self.assertIn("week 3", text)
+        self.assertIn("2h 10m of the 5 hours this week", text)
+        self.assertIn("2h 50m", text)
+
+    def test_each_person_hears_once(self):
+        self._log(600, et("2026-09-23 10:00"))
+        self._run("2026-10-10 18:05")
+        self._run("2026-10-10 21:00")
+        self.assertEqual(self.dm.call_count, 1)
+        self.assertEqual(WeekReminder.objects.filter(user=self.user, week_index=3).count(), 1)
+
+    def test_a_full_bar_gets_no_nudge(self):
+        self._log(600, et("2026-09-23 10:00"))
+        self._log(300, et("2026-10-06 10:00"))
+        self._run("2026-10-10 18:05")
+        self.dm.assert_not_called()
+
+    def test_the_eliminated_get_no_nudge(self):
+        self._log(60, et("2026-09-23 10:00"))  # weeks 1-2 closed short
+        self._run("2026-10-10 18:05")
+        self.dm.assert_not_called()
+
+    def test_week_2_is_about_the_pairs_ten(self):
+        self._log(180, et("2026-09-23 10:00"))
+        self._run("2026-10-03 18:05")
+        text = self.dm.call_args.args[0]
+        self.assertIn("3h 0m of the 10 hours across weeks 1 and 2", text)
+        self.assertIn("7h 0m", text)
+
+    def test_week_1_is_skipped_since_nothing_is_due(self):
+        self._run("2026-09-26 18:05")
+        self.dm.assert_not_called()
+
+    def test_nobody_without_a_slack_id_is_reminded(self):
+        Profile.objects.filter(user=self.user).update(slack_id="")
+        self._log(600, et("2026-09-23 10:00"))
+        self._run("2026-10-10 18:05")
+        self.dm.assert_not_called()
+
+
 class ChallengeAdminTests(BaseTestCase):
     """The organizer's roster and the levers on it."""
 
@@ -714,7 +881,7 @@ class ChallengeAdminTests(BaseTestCase):
         self.assertEqual(self.client.get(reverse("challenge_dash")).status_code, 302)
 
     def test_the_roster_lists_who_is_out(self):
-        with during_week(2):
+        with during_week(3):  # after the grace pair has closed
             self._log(60, in_week(1))
             response = self.client.get(reverse("challenge_dash"))
             rows = {row["user"].username: row for row in response.context["rows"]}
@@ -723,10 +890,10 @@ class ChallengeAdminTests(BaseTestCase):
     def test_it_can_filter_to_just_the_dropped(self):
         survivor = make_user("survivor", slack_id="U0SURV")
         survivor_project = make_project(survivor)
-        with during_week(2):
+        with during_week(3):  # after the grace pair has closed
             self._log(60, in_week(1))
             journal = make_journal(survivor_project, time_spent=0)
-            make_timelapse(survivor_project, journal=journal, minutes=300, recorded_at=in_week(1))
+            make_timelapse(survivor_project, journal=journal, minutes=600, recorded_at=in_week(1))
 
             listed = [
                 row["user"].username
@@ -826,7 +993,7 @@ class StreakPanelTests(BaseTestCase):
             self.assertEqual(response.context["standing"].printer_hours, 6)
 
     def test_the_projects_page_says_why_you_cannot_ship(self):
-        with during_week(2):
+        with during_week(3):  # after the grace pair has closed
             self._log(60, in_week(1))
             response = self.client.get(reverse("projects"))
             self.assertContains(response, "out of the program")

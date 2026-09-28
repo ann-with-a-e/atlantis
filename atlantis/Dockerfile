@@ -9,10 +9,16 @@ WORKDIR /app
 # neither check_timelapse_activity nor the check a new journal kicks off can
 # run at all without it on PATH. --no-install-recommends keeps that to the
 # codecs and leaves out the desktop stack apt would otherwise drag in.
+#
+# tzdata is named rather than left to the base image: challenge weeks are cut
+# in Eastern, and scheduler.sh times snapshot_metrics (23:59) and remind_week
+# (Saturday 6pm) off it with `TZ=... date`. Without the zone files both Django
+# and date fall back to UTC without a word.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     ffmpeg \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

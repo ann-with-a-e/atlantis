@@ -12,7 +12,8 @@ Three numbers come out of here and they are deliberately different things:
   credited hours   tracked time plus saver hours, against the weekly five. What
                    the streak and elimination are judged on, and it uses
                    *tracked* time because internal timelapse review runs days
-                   behind and a week has to settle on Sunday night.
+                   behind and a week has to settle on Sunday night. Weeks 1
+                   and 2 are the exception: ten across the pair will do.
   printer hours    five per week survived, and no more however long you worked.
                    Forty of them buys a printer, which is exactly every week.
   pearls           paid at T3 finalization off *approved* time, split across
@@ -113,6 +114,12 @@ class Week:
 	closed: bool = False
 	current: bool = False
 	override: str = ""
+	# Weeks 1 and 2 are judged as a pair (weeks.GRACE_WEEKS). For a week in
+	# the pair, grace_minutes is what the whole pair has credited and
+	# grace_open says one of them hasn't closed yet.
+	grace: bool = False
+	grace_minutes: int = 0
+	grace_open: bool = False
 
 	@property
 	def saver_minutes(self):
@@ -125,25 +132,69 @@ class Week:
 
 	@property
 	def required_minutes(self):
-		return weeks.WEEKLY_MINUTES
+		"""What the bar is out of: the pair's ten for a grace week, else five."""
+		return weeks.grace_minutes() if self.grace else weeks.WEEKLY_MINUTES
+
+	@property
+	def progress_minutes(self):
+		"""What the bar is filled with, against required_minutes."""
+		return self.grace_minutes if self.grace else self.credited_minutes
 
 	@property
 	def met(self):
-		"""Whether the five hours are there — an organizer's word beats the sum."""
+		"""Whether the hours are there — an organizer's word beats the sum.
+
+		Five in the week always does it. A grace week is also met once the
+		pair has its ten between them, so a light week 1 is carried by a heavy
+		week 2 and the other way round.
+		"""
 		if self.override == WeekOutcome.Override.PASS:
 			return True
 		if self.override == WeekOutcome.Override.FAIL:
 			return False
-		return self.credited_minutes >= weeks.WEEKLY_MINUTES
+		if self.credited_minutes >= weeks.WEEKLY_MINUTES:
+			return True
+		return self.grace and self.grace_minutes >= weeks.grace_minutes()
 
 	@property
 	def missed(self):
-		"""Only a week that is over can be missed; a live one is just unfinished."""
-		return self.closed and not self.met
+		"""Only a week that is over can be missed; a live one is just unfinished.
+
+		A grace week isn't missed until the whole pair has closed: week 1 short
+		is still recoverable all through week 2.
+		"""
+		return self.closed and not self.met and not (self.grace and self.grace_open)
+
+	@property
+	def pending(self):
+		"""Closed short, but waiting on the rest of its grace pair."""
+		return self.closed and not self.met and not self.missed
 
 	@property
 	def shortfall_minutes(self):
-		return max(weeks.WEEKLY_MINUTES - self.credited_minutes, 0)
+		"""Minutes that would make this week met.
+
+		For a grace week that's whichever is nearer — its own five, or the
+		pair's ten — so a saver is never sold for an hour the pair didn't need.
+		"""
+		if self.met:
+			return 0
+		short = weeks.WEEKLY_MINUTES - self.credited_minutes
+		if self.grace:
+			short = min(short, weeks.grace_minutes() - self.grace_minutes)
+		return max(short, 0)
+
+	@property
+	def left_minutes(self):
+		"""What the bar still needs, which is what a page says is "to go"."""
+		return max(self.required_minutes - self.progress_minutes, 0)
+
+	@property
+	def done(self):
+		"""The bar is full. For a grace week that's the pair's ten, not met."""
+		if self.override:
+			return self.met
+		return self.progress_minutes >= self.required_minutes
 
 	@property
 	def shortfall_hours(self):
@@ -153,7 +204,24 @@ class Week:
 	@property
 	def percent(self):
 		"""How full the weekly bar is, 0-100 and never over."""
-		return min(round(self.credited_minutes / weeks.WEEKLY_MINUTES * 100), 100)
+		return min(round(self.progress_minutes / self.required_minutes * 100), 100)
+
+	@property
+	def progress_display(self):
+		return format_minutes(self.progress_minutes)
+
+	@property
+	def left_display(self):
+		return format_minutes(self.left_minutes)
+
+	@property
+	def required_hours(self):
+		return self.required_minutes // 60
+
+	@property
+	def grace_label(self):
+		""""weeks 1 and 2", the way a sentence names the pair."""
+		return "weeks " + " and ".join(str(i) for i in weeks.grace_weeks())
 
 	@property
 	def credited_display(self):
@@ -222,9 +290,12 @@ class Standing:
 		until the missed weeks are paid for.
 		"""
 		banked = len(self.survived) * weeks.WEEKLY_MINUTES
-		live = self.current
-		if live is not None and not self.eliminated:
-			banked += min(live.credited_minutes, weeks.WEEKLY_MINUTES)
+		if not self.eliminated:
+			# A grace week waiting on its pair counts what it has, like the
+			# live one does, so week 1's bar doesn't empty at midnight.
+			for week in self.weeks:
+				if week.current or week.pending:
+					banked += min(week.credited_minutes, weeks.WEEKLY_MINUTES)
 		return min(banked, weeks.printer_hours() * 60)
 
 	@property
@@ -247,9 +318,17 @@ class Standing:
 
 	@property
 	def saver_hours_needed(self):
-		"""Savers needed to rescue the earliest missed week and get back in."""
+		"""Savers needed to rescue the earliest missed week and get back in.
+
+		When that's a grace week, the pair missed together and is rescued
+		together, so it's what both need.
+		"""
 		week = self.earliest_missed
-		return week.shortfall_hours if week else 0
+		if week is None:
+			return 0
+		if week.grace:
+			return sum(w.shortfall_hours for w in self.missed if w.grace)
+		return week.shortfall_hours
 
 	@property
 	def saver_hours_outstanding(self):
@@ -311,6 +390,9 @@ def _build_standing(tracked, savers, overrides, now):
 	{week: override}."""
 	closed = set(weeks.closed_weeks(now))
 	live = weeks.current_week(now)
+	grace = weeks.grace_weeks()
+	grace_minutes = sum(tracked.get(i, 0) + savers.get(i, 0) * 60 for i in grace)
+	grace_open = any(i not in closed for i in grace)
 
 	return Standing(
 		weeks=[
@@ -321,6 +403,9 @@ def _build_standing(tracked, savers, overrides, now):
 				closed=index in closed,
 				current=index == live,
 				override=overrides.get(index, ""),
+				grace=index in grace,
+				grace_minutes=grace_minutes if index in grace else 0,
+				grace_open=grace_open,
 			)
 			for index in range(1, weeks.week_count() + 1)
 		],
@@ -351,11 +436,20 @@ def elimination_reason(user, now=None):
 
 	week = state.earliest_missed
 	hours = state.saver_hours_needed
+	if week.grace:
+		closed = (
+			f"{week.grace_label.capitalize()} closed with "
+			f"{format_minutes(week.grace_minutes)} of the "
+			f"{weeks.grace_minutes() // 60} hours needed between them"
+		)
+	else:
+		closed = (
+			f"{week.label} closed with {format_minutes(week.credited_minutes)} "
+			f"of the {weeks.WEEKLY_HOURS} hours needed"
+		)
 	return (
-		f"You're out of the program: {week.label} closed with "
-		f"{format_minutes(week.credited_minutes)} of the {weeks.WEEKLY_HOURS} hours "
-		f"needed. Buy {hours} missed-week streak saver{'s' if hours != 1 else ''} "
-		"in the shop to get back in."
+		f"You're out of the program: {closed}. Buy {hours} missed-week streak "
+		f"saver{'s' if hours != 1 else ''} in the shop to get back in."
 	)
 
 

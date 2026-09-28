@@ -3,7 +3,8 @@
 # The timer the management commands have always needed, as its own container.
 #
 # Three things have to happen on a schedule and none of them had anywhere to
-# run: close_week settles finished challenge weeks and DMs whoever got dropped,
+# run: close_week settles finished challenge weeks and DMs whoever got dropped
+# (with remind_week nudging whoever is still short on Saturday evening),
 # submit_airtable retries submissions that failed at finalization, and
 # check_timelapse_activity looks for dead air in compiled footage. (A fourth,
 # snapshot_metrics, runs once a day at a set time; see snapshot_loop.) Every
@@ -25,6 +26,9 @@ set -u
 
 TICK="${SCHEDULER_TICK:-60}"
 CLOSE_WEEK_EVERY="${CLOSE_WEEK_EVERY:-3600}"
+# Does nothing until Saturday 6pm Eastern, then DMs each person short on the
+# week once; running it often just means the DMs go out close to six.
+REMIND_WEEK_EVERY="${REMIND_WEEK_EVERY:-600}"
 SUBMIT_AIRTABLE_EVERY="${SUBMIT_AIRTABLE_EVERY:-600}"
 CHECK_ACTIVITY_EVERY="${CHECK_ACTIVITY_EVERY:-900}"
 # Each pass runs ffmpeg over whole videos, so it is bounded rather than left to
@@ -115,6 +119,7 @@ snapshot_loop &
 
 while true; do
 	run_due close_week "$CLOSE_WEEK_EVERY" close_week
+	run_due remind_week "$REMIND_WEEK_EVERY" remind_week
 	run_due submit_airtable "$SUBMIT_AIRTABLE_EVERY" submit_airtable
 	run_due check_activity "$CHECK_ACTIVITY_EVERY" \
 		check_timelapse_activity --limit "$CHECK_ACTIVITY_LIMIT"

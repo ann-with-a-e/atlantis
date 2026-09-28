@@ -32,6 +32,12 @@ from django.utils import timezone
 WEEKLY_HOURS = 5
 WEEKLY_MINUTES = WEEKLY_HOURS * 60
 
+# A one-off for the start of the program: weeks 1 and 2 are judged together,
+# so ten hours across the pair keeps you in however it's split, and week 1
+# can't be missed until week 2 has closed too. Every later week stands on its
+# own five. See challenge.Week.met.
+GRACE_WEEKS = (1, 2)
+
 
 def zone():
     """The program's timezone — the one weeks are cut in."""
@@ -45,6 +51,16 @@ def week_count():
 def printer_hours():
     """Hours the printer bar is out of: five for every week of the program."""
     return WEEKLY_HOURS * week_count()
+
+
+def grace_weeks():
+    """The pooled weeks that actually exist in a program this long."""
+    return tuple(index for index in GRACE_WEEKS if index <= week_count())
+
+
+def grace_minutes():
+    """What the pooled weeks ask for between them."""
+    return WEEKLY_MINUTES * len(grace_weeks())
 
 
 def start_date():
@@ -143,6 +159,19 @@ def closed_weeks(now=None):
 def deadline(index):
     """The last instant of week `index`, for display — its Sunday 11:59:59pm."""
     return week_bounds(index)[1] - timedelta(seconds=1)
+
+
+# When the "hours left" DM goes out: Saturday evening, local, a day and a bit
+# before the week closes.
+REMINDER_DAY = 5  # Monday is 0
+REMINDER_TIME = time(18, 0)
+
+
+def reminder_at(index):
+    """The instant week `index`'s reminder DM is due — its Saturday 6pm."""
+    opens = start_date() + timedelta(weeks=index - 1)
+    on = opens + timedelta(days=REMINDER_DAY)
+    return datetime.combine(on, REMINDER_TIME, tzinfo=zone()).replace(fold=0)
 
 
 def week_label(index):

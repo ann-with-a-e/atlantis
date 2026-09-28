@@ -79,6 +79,10 @@ class Command(BaseCommand):
 
             for index in closed:
                 week = state.weeks[index - 1]
+                # Week 1 short is still live until week 2 closes (the grace
+                # pair), so there's nothing to write down about it yet.
+                if week.pending:
+                    continue
                 row = existing.get(index)
                 if row is None:
                     settled += 1
@@ -128,10 +132,27 @@ class Command(BaseCommand):
         from ...views.helpers import send_slack_dm
 
         hours = state.saver_hours_needed
+        week = state.weeks[row.week_index - 1]
         sent = False
+
+        # The grace pair missed together, so it gets one DM, not one per week.
+        if week.grace:
+            pair = WeekOutcome.objects.filter(
+                user=profile.user, week_index__in=weeks.grace_weeks(),
+            )
+            if pair.filter(notified_at__isnull=False).exists():
+                row.notified_at = timezone.now()
+                row.save(update_fields=["notified_at"])
+                return False
+            missed = (
+                f"{weeks.grace_minutes() // 60} hours across {week.grace_label}"
+            )
+        else:
+            missed = f"{weeks.WEEKLY_HOURS} hours for week {row.week_index}"
+
         if profile.slack_id:
             sent = send_slack_dm(
-                f"You didn't hit {weeks.WEEKLY_HOURS} hours for week {row.week_index}, "
+                f"You didn't hit {missed}, "
                 "so you're out of Atlantis for now and can't ship or log new time. "
                 f"Buying {hours} missed-week streak saver{'s' if hours != 1 else ''} "
                 "in the shop puts you back in: https://atlantis.hackclub.com/shop/",

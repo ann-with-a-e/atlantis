@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     AirtableSubmission, AuditLog, LapseAccount, PearlBracket, PrinterClaim,
     SaverCredit, Timelapse, TimelapseRemoval, TimelapseReview, WeekOutcome,
+    WeekReminder,
 )
 
 
@@ -143,6 +144,13 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 class WeekOutcomeAdmin(ReadOnlyAdmin):
     list_display = ("user", "week_index", "passed", "real_minutes", "override", "closed_at", "notified_at")
     list_filter = ("week_index", "passed", "override")
+    search_fields = ("user__username",)
+
+
+@admin.register(WeekReminder)
+class WeekReminderAdmin(ReadOnlyAdmin):
+    list_display = ("user", "week_index", "sent_at")
+    list_filter = ("week_index",)
     search_fields = ("user__username",)
 
 

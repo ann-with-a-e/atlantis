@@ -1,5 +1,6 @@
 {% comment %}
 The streak panel: this week's five hours and how long is left to finish them.
+During weeks 1 and 2 it's the pair's ten instead (weeks.GRACE_WEEKS).
 
 One bar, and it is the only thing that can put you out of the program. The
 season's forty printer hours are a readout you never act on today, so they live
@@ -34,22 +35,22 @@ Rendered on the deck. Takes the context dashboard.challenge_context builds.
         </div>
 
         <div class="streak-bar" role="progressbar"
-             aria-valuenow="{{ week.credited_minutes }}" aria-valuemin="0"
+             aria-valuenow="{{ week.progress_minutes }}" aria-valuemin="0"
              aria-valuemax="{{ week.required_minutes }}"
              aria-label="Hours logged this week">
             <span class="streak-fill" style="--fill: {{ week.percent }}%"></span>
         </div>
 
         <p class="streak-legend">
-            <strong class="streak-count">{{ week.credited_display }}</strong>
-            <span class="streak-of">of {{ weekly_hours }} hours</span>
+            <strong class="streak-count">{{ week.progress_display }}</strong>
+            <span class="streak-of">of {{ week.required_hours }} hours{% if week.grace %} across {{ week.grace_label }}{% endif %}</span>
             {% if week.saver_hours %}
                 <span class="streak-savers">{{ week.saver_hours }} saved</span>
             {% endif %}
-            {% if week.met %}
+            {% if week.done %}
                 <span class="streak-done">done</span>
             {% else %}
-                <span class="streak-left">{{ week.shortfall_display }} to go</span>
+                <span class="streak-left">{{ week.left_display }} to go</span>
             {% endif %}
         </p>
 

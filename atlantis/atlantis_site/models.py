@@ -1345,6 +1345,36 @@ class WeekOutcome(models.Model):
 		return f"{self.user_id} week {self.week_index}: {'met' if self.passed else 'missed'}"
 
 
+class WeekReminder(models.Model):
+	"""That the Saturday "hours left this week" DM went to one user for one week.
+
+	Kept apart from WeekOutcome on purpose: an outcome row existing is
+	close_week's claim that the week has been settled, and a reminder is sent
+	while the week is still running. The row is the only thing that lets
+	remind_week run every few minutes all Saturday night and DM each person
+	once.
+	"""
+
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name="week_reminders",
+	)
+	week_index = models.PositiveSmallIntegerField()
+	sent_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ["user_id", "week_index"]
+		constraints = [
+			models.UniqueConstraint(
+				fields=["user", "week_index"], name="one_reminder_per_user_week"
+			),
+		]
+
+	def __str__(self):
+		return f"{self.user_id} week {self.week_index} reminded"
+
+
 class PearlBracket(models.Model):
 	"""How much of one week's cheap-rate allowance a user has already been paid.
 
